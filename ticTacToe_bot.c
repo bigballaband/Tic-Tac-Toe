@@ -8,19 +8,26 @@ typedef enum {
     CELL_O = 0
 } Cell;
 
-typedef struct {
-    int n;
-    Cell **board;
-    int moves;
-    Cell current_player;   // CELL_X or CELL_O
-} Game;
-
 typedef enum {
     RESULT_NONE,
     RESULT_X,
     RESULT_O,
     RESULT_TIE
 } Result;
+
+typedef enum {
+    PLAYER_HUMAN,
+    PLAYER_AI
+} PlayerType;
+
+typedef struct {
+    int n;
+    Cell **board;
+    int moves;
+    Cell current_player;   // CELL_X or CELL_O
+    PlayerType player_x;
+    PlayerType player_o;
+} Game;
 
 Cell **initializeBoard(int n);
 void freeBoard(Cell **board, int n);
@@ -29,6 +36,9 @@ void destroyGame(Game *g);
 void printBoard(const Game *g);
 bool play_pos(Game *g, int x, int y);
 Result get_game_result(const Game *g);
+void clear_input(void);
+int read_int_in_range(const char *prompt, int min, int max);
+void get_ai_move(Game *g, int *out_row, int *out_col);
 
 Cell **initializeBoard(int n) {
     Cell **board = malloc(sizeof(Cell*) * n);
@@ -41,7 +51,6 @@ Cell **initializeBoard(int n) {
         board[i] = malloc(sizeof(Cell) * n);
         if (!board[i]) {
             fprintf(stderr, "Memory allocation failed for board row %d.\n", i);
-            // clean up already allocated rows
             for (int k = 0; k < i; ++k) {
                 free(board[k]);
             }
@@ -67,7 +76,9 @@ void initGame(Game *g, int n) {
     g->n = n;
     g->board = initializeBoard(n);
     g->moves = 0;
-    g->current_player = CELL_X; // Player 1 starts
+    g->current_player = CELL_X; // X starts
+    g->player_x = PLAYER_HUMAN;
+    g->player_o = PLAYER_HUMAN;
 }
 
 void destroyGame(Game *g) {
@@ -79,7 +90,6 @@ void printBoard(const Game *g) {
     int n = g->n;
     Cell **board = g->board;
 
-    // optional coordinate header
     printf("   ");
     for (int j = 0; j < n; ++j) {
         printf("%d", j + 1);
@@ -88,10 +98,9 @@ void printBoard(const Game *g) {
     printf("\n");
 
     for (int i = 0; i < n; ++i){
-        // separator line
         if (i == 0) {
+            printf("  ");
             for (int j = 0; j < n; ++j){
-                if (j == 0) printf("  ");
                 printf("-");
                 if (j < n - 1) printf("+");
             }
@@ -127,7 +136,7 @@ void printBoard(const Game *g) {
     printf("\n");
 }
 
-// x, y are 1-based coordinates from user
+// x, y are 1-based
 bool play_pos(Game *g, int x, int y) {
     int n = g->n;
     int row = x - 1;
@@ -151,11 +160,11 @@ Result get_game_result(const Game *g) {
     int n = g->n;
     Cell **board = g->board;
 
-    // Check rows
+    // rows
     for (int i = 0; i < n; i++) {
         bool rowWin = true;
         Cell first = board[i][0];
-        if (first == CELL_EMPTY) continue; // Empty cell
+        if (first == CELL_EMPTY) continue;
         for (int j = 1; j < n; j++) {
             if (board[i][j] != first) {
                 rowWin = false;
@@ -167,11 +176,11 @@ Result get_game_result(const Game *g) {
         }
     }
 
-    // Check columns
+    // cols
     for (int j = 0; j < n; j++) {
         bool colWin = true;
         Cell first = board[0][j];
-        if (first == CELL_EMPTY) continue; // Empty cell
+        if (first == CELL_EMPTY) continue;
         for (int i = 1; i < n; i++) {
             if (board[i][j] != first) {
                 colWin = false;
@@ -183,7 +192,7 @@ Result get_game_result(const Game *g) {
         }
     }
 
-    // Check main diagonal
+    // main diag
     bool diagWin = true;
     Cell first = board[0][0];
     if (first != CELL_EMPTY) {
@@ -198,7 +207,7 @@ Result get_game_result(const Game *g) {
         }
     }
 
-    // Check anti-diagonal
+    // anti diag
     diagWin = true;
     first = board[0][n - 1];
     if (first != CELL_EMPTY) {
@@ -213,7 +222,6 @@ Result get_game_result(const Game *g) {
         }
     }
 
-    // No winner, check tie
     if (g->moves >= n * n) {
         return RESULT_TIE;
     }
@@ -221,72 +229,161 @@ Result get_game_result(const Game *g) {
     return RESULT_NONE;
 }
 
+void clear_input(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) {
+        /* discard */
+    }
+}
+
+int read_int_in_range(const char *prompt, int min, int max) {
+    int x;
+    while (1) {
+        printf("%s", prompt);
+        if (scanf("%d", &x) != 1) {
+            clear_input();
+            printf("Invalid input, please enter a number.\n");
+            continue;
+        }
+        if (x < min || x > max) {
+            printf("Please enter a value between %d and %d.\n", min, max);
+            continue;
+        }
+        return x;
+    }
+}
+
+// simple AI, works for any n
+void get_ai_move(Game *g, int *out_row, int *out_col) {
+    int n = g->n;
+    Cell me = g->current_player;
+    Cell opp = (me == CELL_X) ? CELL_O : CELL_X;
+
+    // 1. try to win in one move
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (g->board[i][j] == CELL_EMPTY) {
+                g->board[i][j] = me;
+                Result r = get_game_result(g);
+                g->board[i][j] = CELL_EMPTY;
+                if ((me == CELL_X && r == RESULT_X) || (me == CELL_O && r == RESULT_O)) {
+                    *out_row = i;
+                    *out_col = j;
+                    return;
+                }
+            }
+        }
+    }
+
+    // 2. block opponent's win
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (g->board[i][j] == CELL_EMPTY) {
+                g->board[i][j] = opp;
+                Result r = get_game_result(g);
+                g->board[i][j] = CELL_EMPTY;
+                if ((opp == CELL_X && r == RESULT_X) || (opp == CELL_O && r == RESULT_O)) {
+                    *out_row = i;
+                    *out_col = j;
+                    return;
+                }
+            }
+        }
+    }
+
+    // 3. small heuristic for 3x3: center then corners
+    if (n == 3) {
+        if (g->board[1][1] == CELL_EMPTY) {
+            *out_row = 1;
+            *out_col = 1;
+            return;
+        }
+        int corners[4][2] = { {0,0}, {0,2}, {2,0}, {2,2} };
+        for (int k = 0; k < 4; ++k) {
+            int i = corners[k][0];
+            int j = corners[k][1];
+            if (g->board[i][j] == CELL_EMPTY) {
+                *out_row = i;
+                *out_col = j;
+                return;
+            }
+        }
+    }
+
+    // 4. fallback: first empty cell, works for any n
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (g->board[i][j] == CELL_EMPTY) {
+                *out_row = i;
+                *out_col = j;
+                return;
+            }
+        }
+    }
+
+    // should not happen if moves < n*n
+    *out_row = 0;
+    *out_col = 0;
+}
+
 int main(void) {
     printf("Welcome to variable Tic Tac Toe game!\n\n");
     printf("Player 1 = X\n");
-    printf("Player 2 = O\n\n");
+    printf("Player 2 / Bot = O\n\n");
 
-    int n;
+    int mode = read_int_in_range(
+        "Choose mode:\n1) Player vs Player\n2) Player vs Bot (you = X, bot = O)\nChoice: ",
+        1, 2
+    );
 
-    while (1) {
-        printf("What is the size of the board you want to play? Enter a number between 1 and 1000: ");
-        if (scanf("%d", &n) != 1) {
-            // clear bad input
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF) {}
-            printf("Invalid input, please enter an integer.\n");
-            continue;
-        }
-
-        if (n < 1 || n > 1000) {
-            printf("Invalid integer, try again.\n");
-            continue;
-        }
-
-        break;
-    }
+    int n = read_int_in_range(
+        "What is the size of the board you want to play? Enter a number between 1 and 1000: ",
+        1, 1000
+    );
 
     Game game;
     initGame(&game, n);
+
+    game.player_x = PLAYER_HUMAN;
+    game.player_o = (mode == 1) ? PLAYER_HUMAN : PLAYER_AI;
 
     Result res = RESULT_NONE;
 
     while (res == RESULT_NONE) {
         printBoard(&game);
 
-        if (game.current_player == CELL_X) {
-            printf("Player 1 turn (X)\n\n");
+        bool current_is_human =
+            (game.current_player == CELL_X)
+                ? (game.player_x == PLAYER_HUMAN)
+                : (game.player_o == PLAYER_HUMAN);
+
+        if (current_is_human) {
+            if (game.current_player == CELL_X) {
+                printf("Player 1 turn (X)\n\n");
+            } else {
+                printf("Player 2 turn (O)\n\n");
+            }
+
+            int x, y;
+            while (1) {
+                x = read_int_in_range("Enter row: ", 1, game.n);
+                y = read_int_in_range("Enter column: ", 1, game.n);
+                if (play_pos(&game, x, y)) {
+                    break;
+                }
+            }
         } else {
-            printf("Player 2 turn (O)\n\n");
-        }
-
-        int x, y;
-
-        printf("Enter row (1 to %d): ", game.n);
-        if (scanf("%d", &x) != 1) {
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF) {}
-            printf("Invalid input, try again.\n");
-            continue;
-        }
-
-        printf("Enter column (1 to %d): ", game.n);
-        if (scanf("%d", &y) != 1) {
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF) {}
-            printf("Invalid input, try again.\n");
-            continue;
-        }
-
-        if (!play_pos(&game, x, y)) {
-            continue;  // invalid move, re-prompt same player
+            printf("Bot's turn (O)\n\n");
+            int row, col;
+            get_ai_move(&game, &row, &col);
+            printf("Bot plays at row %d, column %d\n", row + 1, col + 1);
+            play_pos(&game, row + 1, col + 1);
         }
 
         game.moves++;
         res = get_game_result(&game);
 
         if (res == RESULT_NONE) {
-            // swap player
             game.current_player = (game.current_player == CELL_X) ? CELL_O : CELL_X;
         }
     }
@@ -297,7 +394,11 @@ int main(void) {
     if (res == RESULT_X) {
         printf("CONGRATS Player 1 WON THE GAME!\n");
     } else if (res == RESULT_O) {
-        printf("CONGRATS Player 2 WON THE GAME!\n");
+        if (game.player_o == PLAYER_AI) {
+            printf("The bot (O) won.\n");
+        } else {
+            printf("CONGRATS Player 2 WON THE GAME!\n");
+        }
     } else {
         printf("It's a tie!\n");
     }
